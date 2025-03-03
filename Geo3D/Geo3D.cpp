@@ -15,6 +15,7 @@ int gl_dumpOnly = false;
 int gl_dumpASM = false;
 bool gl_2D = false;
 bool gl_pipelines = false;
+bool gl_DXIL_if = false;
 
 std::filesystem::path dump_path;
 std::filesystem::path fix_path;
@@ -325,6 +326,7 @@ static void  enumerateFiles() {
 	}
 }
 
+mutex m;
 void updatePipeline(reshade::api::device* device, PSO* pso) {
 	vector<UINT8> ASM;
 	vector<UINT8> VS_L, VS_R, PS_L, PS_R, CS_L, CS_R;
@@ -332,11 +334,13 @@ void updatePipeline(reshade::api::device* device, PSO* pso) {
 
 	bool dx9 = device->get_api() == device_api::d3d9;
 
+	gl_DXIL_if = true;
+
 	ASM = pso->vsASM;
 	if (pso->vsEdit.size() > 0) {
 		ASM = pso->vsEdit;
 		auto L = patch(dx9, ASM, true, gl_conv, gl_screenSize, gl_separation);
-		auto test = changeASM(dx9, L, true, gl_conv, gl_screenSize, gl_separation);
+		auto test = changeASM(dx9, L, true, gl_conv, gl_screenSize, gl_separation, pso->crcVS);
 		if (test.size() == 0) {
 			VS_L = L;
 			VS_R = patch(dx9, ASM, false, gl_conv, gl_screenSize, gl_separation);
@@ -344,14 +348,14 @@ void updatePipeline(reshade::api::device* device, PSO* pso) {
 		else {
 			VS_L = test;
 			VS_R = patch(dx9, ASM, false, gl_conv, gl_screenSize, gl_separation);
-			VS_R = changeASM(dx9, VS_R, false, gl_conv, gl_screenSize, gl_separation);
+			VS_R = changeASM(dx9, VS_R, false, gl_conv, gl_screenSize, gl_separation, pso->crcVS);
 		}
 	}
 	else if (ASM.size() > 0) {
-		auto test = changeASM(dx9, ASM, true, gl_conv, gl_screenSize, gl_separation);
+		auto test = changeASM(dx9, ASM, true, gl_conv, gl_screenSize, gl_separation, pso->crcVS);
 		if (test.size() > 0) {
 			VS_L = test;
-			VS_R = changeASM(dx9, ASM, false, gl_conv, gl_screenSize, gl_separation);
+			VS_R = changeASM(dx9, ASM, false, gl_conv, gl_screenSize, gl_separation, pso->crcVS);
 		}
 		else {
 			pso->vs->code = pso->vsV.data();
@@ -383,16 +387,27 @@ void updatePipeline(reshade::api::device* device, PSO* pso) {
 
 	if (VS_L.size() > 0) {
 		cVS_L = assembler(dx9, VS_L, pso->vsV);
+		cVS_R = assembler(dx9, VS_R, pso->vsV);
+	}
+	if (PS_L.size() > 0) {
+		cPS_L = assembler(dx9, PS_L, pso->psV);
+		cPS_R = assembler(dx9, PS_R, pso->psV);
+	}
+	if (CS_L.size() > 0) {
+		cCS_L = assembler(dx9, CS_L, pso->csV);
+		cCS_R = assembler(dx9, CS_R, pso->csV);
+	}
+
+	m.lock();
+	if (VS_L.size() > 0) {
 		pso->vs->code = cVS_L.data();
 		pso->vs->code_size = cVS_L.size();
 	}
 	if (PS_L.size() > 0) {
-		cPS_L = assembler(dx9, PS_L, pso->psV);
 		pso->ps->code = cPS_L.data();
 		pso->ps->code_size = cPS_L.size();
 	}
 	if (CS_L.size() > 0) {
-		cCS_L = assembler(dx9, CS_L, pso->csV);
 		pso->cs->code = cCS_L.data();
 		pso->cs->code_size = cCS_L.size();
 	}
@@ -403,17 +418,14 @@ void updatePipeline(reshade::api::device* device, PSO* pso) {
 	}
 
 	if (VS_R.size() > 0) {
-		cVS_R = assembler(dx9, VS_R, pso->vsV);
 		pso->vs->code = cVS_R.data();
 		pso->vs->code_size = cVS_R.size();
 	}
 	if (PS_R.size() > 0) {
-		cPS_R = assembler(dx9, PS_R, pso->psV);
 		pso->ps->code = cPS_R.data();
 		pso->ps->code_size = cPS_R.size();
 	}
 	if (CS_R.size() > 0) {
-		cCS_L = assembler(dx9, CS_R, pso->csV);
 		pso->cs->code = cCS_R.data();
 		pso->cs->code_size = cCS_R.size();
 	}
@@ -422,6 +434,7 @@ void updatePipeline(reshade::api::device* device, PSO* pso) {
 	if (device->create_pipeline(pso->layout, (UINT32)pso->objects.size(), pso->objects.data(), &pipeR)) {
 		pso->Right = pipeR;
 	}
+	m.unlock();
 }
 
 static void onInitPipeline(device* device, pipeline_layout layout, uint32_t subobject_count, const pipeline_subobject* subobjects, pipeline pipeline)
@@ -462,7 +475,7 @@ static void onInitPipeline(device* device, pipeline_layout layout, uint32_t subo
 	PSO pso = {};
 	storePipelineStateCrosire(layout, subobject_count, subobjects, &pso);
 	pso.separation = gl_separation;
-	pso.convergence = gl_conv;
+	pso.convergence = 0;
 	for (uint32_t i = 0; i < subobject_count; ++i)
 	{
 		switch (subobjects[i].type)
@@ -540,7 +553,7 @@ static void onInitPipeline(device* device, pipeline_layout layout, uint32_t subo
 	if (fixes.find(fix_path / sPath) != fixes.end())
 		pso.csEdit = readFile(fix_path / sPath);
 	
-	updatePipeline(device, &pso);
+	//updatePipeline(device, &pso);
 	
 	PSOmap[pipeline.handle] = pso;
 }
@@ -625,8 +638,8 @@ static void onBindPipeline(command_list* cmd_list, pipeline_stage stage, reshade
 	}
 }
 
-static void onReshadePresent(effect_runtime* runtime)
-//static void onReshadeBeginEffects(effect_runtime* runtime, command_list* cmd_list, resource_view rtv, resource_view rtv_srgb)
+//static void onReshadePresent(effect_runtime* runtime)
+static void onReshadeBeginEffects(effect_runtime* runtime, command_list* cmd_list, resource_view rtv, resource_view rtv_srgb)
 {
 	gl_left = !gl_left;
 	
@@ -746,6 +759,23 @@ static void onReshadePresent(effect_runtime* runtime)
 	}
 	for (auto it = toDeleteCS.begin(); it != toDeleteCS.end(); ++it)
 		computeShaders.erase(*it);
+
+	if (runtime->is_key_pressed(VK_F11)) {
+		for (auto it = PSOmap.begin(); it != PSOmap.end(); ++it) {
+			PSO* pso = &it->second;
+			if (pixelShaders.count(pso->crcPS) == 1) {
+				filesystem::path fix_path_dump = fix_path / L"Dump";
+				filesystem::create_directories(fix_path_dump);
+				swprintf_s(sPath, MAX_PATH, L"%08lX-ps.skip", pso->crcPS);
+				filesystem::path file = fix_path / sPath;
+				_wfopen_s(&f, file.c_str(), L"wb");
+				if (f != 0) {
+					fwrite(pso->psASM.data(), 1, pso->psASM.size(), f);
+					fclose(f);
+				}
+			}
+		}
+	}
 
 	if (runtime->is_key_pressed(VK_NUMPAD1)) {
 		if (currentPS > 0) {
@@ -1118,7 +1148,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 		reshade::register_event<reshade::addon_event::init_pipeline>(onInitPipeline);
 		reshade::register_event<reshade::addon_event::bind_pipeline>(onBindPipeline);
 		reshade::register_event<reshade::addon_event::reshade_overlay>(onReshadeOverlay);
-		reshade::register_event<reshade::addon_event::reshade_present>(onReshadePresent);
+		//reshade::register_event<reshade::addon_event::reshade_present>(onReshadePresent);
+		reshade::register_event<reshade::addon_event::reshade_begin_effects>(onReshadeBeginEffects);
 		
 		reshade::register_event<reshade::addon_event::draw>(onDraw);
 		reshade::register_event<reshade::addon_event::draw_indexed>(onDrawIndexed);
