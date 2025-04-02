@@ -3375,6 +3375,9 @@ vector<UINT8> assembler(bool dx9, vector<UINT8> asmFile, vector<UINT8> buffer) {
 			if (hr == S_OK) {
 				ComPtr<IDxcBlob> pBlob;
 				pRes->GetResult(pBlob.GetAddressOf());
+				if (pBlob == nullptr) {
+					return ret;
+				}
 				UINT8* pASM = (UINT8*)pBlob->GetBufferPointer();
 				if (pASM == nullptr)
 					return ret;
