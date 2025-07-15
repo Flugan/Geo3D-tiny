@@ -14,11 +14,13 @@ float gl_separation = 15.0f;
 bool gl_dumpBIN = false;
 bool gl_dumpOnly = false;
 bool gl_dumpASM = false;
+bool gl_initMultiple = false;
 bool gl_Type = false;
 bool gl_2D = false;
 bool gl_pipelines = false;
 bool gl_quickLoad = false;
 bool gl_DepthZ = false;
+bool gl_ReshadePresent = false;
 
 std::filesystem::path dump_path;
 std::filesystem::path fix_path;
@@ -164,10 +166,12 @@ void updatePipeline(reshade::api::device* device, PSO* pso) {
 
 	reshade::api::pipeline pipeL;
 	if (device->create_pipeline(pso->layout, (UINT32)pso->objects.size(), pso->objects.data(), &pipeL)) {
+		/*
 		if (pso->Left.handle != 0) {
 			auto temp = (IUnknown*)pso->Left.handle;
 			temp->Release();
 		}
+		*/
 		pso->Left = pipeL;
 	}
 
@@ -194,18 +198,22 @@ void updatePipeline(reshade::api::device* device, PSO* pso) {
 
 	reshade::api::pipeline pipeR;
 	if (device->create_pipeline(pso->layout, (UINT32)pso->objects.size(), pso->objects.data(), &pipeR)) {
+		/*
 		if (pso->Right.handle != 0) {
 			auto temp = (IUnknown*)pso->Right.handle;
 			temp->Release();
 		}
+		*/
 		pso->Right = pipeR;
 	}
 }
 
 static void onInitPipeline(device* device, pipeline_layout layout, uint32_t subobject_count, const pipeline_subobject* subobjects, pipeline pipeline)
 {
-	if (PSOmap.count(pipeline.handle) == 1) {
-		return;
+	if (!gl_initMultiple) {
+		if (PSOmap.count(pipeline.handle) == 1) {
+			return;
+		}
 	}
 
 	bool dx9 = device->get_api() == device_api::d3d9;
@@ -341,7 +349,7 @@ struct __declspec(uuid("7C1F9990-4D3F-4674-96AB-49E1840C83FC")) CommandListSkip 
 };
 
 bool edit = false;
-uint16_t fade = 120;
+uint16_t fade = 60;
 map<uint32_t, uint16_t> vertexShaders;
 map<uint32_t, uint16_t> pixelShaders;
 map<uint32_t, uint16_t> computeShaders;
@@ -378,7 +386,8 @@ static void onBindPipeline(command_list* cmd_list, pipeline_stage stage, reshade
 			updatePipeline(cmd_list->get_device(), pso);
 		}
 
-		if (cmd_list->get_device()->get_api() == device_api::d3d12) {
+		if (cmd_list->get_device()->get_api() == device_api::d3d12 ||
+			cmd_list->get_device()->get_api() == device_api::opengl) {
 			if (pso->skip)
 				return;
 			if (pso->noDraw)
@@ -397,7 +406,8 @@ static void onBindPipeline(command_list* cmd_list, pipeline_stage stage, reshade
 			}
 		}
 
-		if (cmd_list->get_device()->get_api() == device_api::d3d12) {
+		if (cmd_list->get_device()->get_api() == device_api::d3d12 ||
+			cmd_list->get_device()->get_api() == device_api::opengl) {
 			commandListData->PS = pso->crcPS ? pso->crcPS : -1;
 			commandListData->VS = pso->crcVS ? pso->crcVS : -1;
 		}
@@ -421,7 +431,7 @@ static void onBindPipeline(command_list* cmd_list, pipeline_stage stage, reshade
 			(stage & pipeline_stage::geometry_shader) != 0 ||
 			(stage & pipeline_stage::pixel_shader) != 0 ||
 			(stage & pipeline_stage::compute_shader) != 0) {
-			if (pso->Left.handle != 0) {
+			if (pso->Left.handle != 0 && pso->Right.handle != 0) {
 				if (gl_left) {
 					cmd_list->bind_pipeline(stage, pso->Left);
 				}
@@ -433,21 +443,23 @@ static void onBindPipeline(command_list* cmd_list, pipeline_stage stage, reshade
 	}
 }
 
+bool gl_leftReshade = false;
 
 static void onPresent(command_queue* queue, swapchain* swapchain, const rect* source_rect, const rect* dest_rect, uint32_t dirty_rect_count, const rect* dirty_rects)
 {
-	gl_left = !gl_left;
+	if (!gl_ReshadePresent)
+		gl_left = !gl_left;
+	else
+		gl_left = gl_leftReshade;
 }
 
 static void onReshadePresent(effect_runtime* runtime)
 {
-	/*
-	auto var = runtime->find_uniform_variable("3DToElse.fx", "framecount");
+	auto var = runtime->find_uniform_variable(nullptr, "framecount");
 	unsigned int framecountElse = 0;
 	runtime->get_uniform_value_uint(var, &framecountElse, 1);
 	if (framecountElse > 0)
-		gl_left = (framecountElse % 2) == 0;
-	*/
+		gl_leftReshade = (framecountElse % 2) == 0;
 
 	bool dx9 = runtime->get_device()->get_api() == device_api::d3d9;
 
@@ -811,6 +823,8 @@ static void load_config()
 	reshade::get_config_value(nullptr, "Geo3D", "QuickLoad", gl_quickLoad);
 	reshade::get_config_value(nullptr, "Geo3D", "ShaderType", gl_Type);
 	reshade::get_config_value(nullptr, "Geo3D", "DepthZ", gl_DepthZ);
+	reshade::get_config_value(nullptr, "Geo3D", "InitMultipe", gl_initMultiple);
+	reshade::get_config_value(nullptr, "Geo3D", "ReshadePresent", gl_ReshadePresent);
 
 	reshade::get_config_value(nullptr, "Geo3D", "StereoConvergence", gl_conv);
 	reshade::get_config_value(nullptr, "Geo3D", "StereoScreenSize", gl_screenSize);
