@@ -362,7 +362,7 @@ PSO* pso2 = nullptr;
 static void onBindPipeline(command_list* cmd_list, pipeline_stage stage, reshade::api::pipeline pipeline)
 {
 	auto commandListData = cmd_list->get_private_data<CommandListSkip>();
-	commandListData->skip = false;
+	commandListData.skip = false;
 
 	if (PSOmap.count(pipeline.handle) == 1) {
 		PSO* pso = PSOmap[pipeline.handle];
@@ -391,7 +391,7 @@ static void onBindPipeline(command_list* cmd_list, pipeline_stage stage, reshade
 			if (pso->skip)
 				return;
 			if (pso->noDraw)
-				commandListData->skip = true;
+				commandListData.skip = true;
 		}
 		else {
 			if (pso->skip || pso->noDraw)
@@ -402,27 +402,27 @@ static void onBindPipeline(command_list* cmd_list, pipeline_stage stage, reshade
 				if (pso2->skip)
 					return;
 				if (pso2->noDraw)
-					commandListData->skip = true;
+					commandListData.skip = true;
 			}
 		}
 
 		if (cmd_list->get_device()->get_api() == device_api::d3d12 ||
 			cmd_list->get_device()->get_api() == device_api::opengl) {
-			commandListData->PS = pso->crcPS ? pso->crcPS : -1;
-			commandListData->VS = pso->crcVS ? pso->crcVS : -1;
+			commandListData.PS = pso->crcPS ? pso->crcPS : -1;
+			commandListData.VS = pso->crcVS ? pso->crcVS : -1;
 		}
 		else {
-			commandListData->PS = pso->crcPS ? pso->crcPS : commandListData->PS;
-			commandListData->VS = pso->crcVS ? pso->crcVS : commandListData->VS;
+			commandListData.PS = pso->crcPS ? pso->crcPS : commandListData.PS;
+			commandListData.VS = pso->crcVS ? pso->crcVS : commandListData.VS;
 		}
-		commandListData->CS = pso->crcCS ? pso->crcCS : commandListData->CS;
+		commandListData.CS = pso->crcCS ? pso->crcCS : commandListData.CS;
 
-		if (currentPS > 0 && currentPS == commandListData->PS || currentVS > 0 && currentVS == commandListData->VS || currentCS > 0 && currentCS == commandListData->CS) {
+		if (currentPS > 0 && currentPS == commandListData.PS || currentVS > 0 && currentVS == commandListData.VS || currentCS > 0 && currentCS == commandListData.CS) {
 			if (huntUsing2D) {
 				return;
 			}
 			else {
-				commandListData->skip = true;
+				commandListData.skip = true;
 			}
 		}
 
@@ -903,10 +903,10 @@ static void onInitCommandList(command_list* commandList)
 {
 	commandList->create_private_data<CommandListSkip>();
 	auto commandListData = commandList->get_private_data<CommandListSkip>();
-	commandListData->skip = false;
-	commandListData->VS = 0;
-	commandListData->PS = 0;
-	commandListData->CS = 0;
+	commandListData.skip = false;
+	commandListData.VS = 0;
+	commandListData.PS = 0;
+	commandListData.CS = 0;
 }
 
 static void onDestroyCommandList(command_list* commandList)
@@ -917,10 +917,10 @@ static void onDestroyCommandList(command_list* commandList)
 static void onResetCommandList(command_list* commandList)
 {
 	auto commandListData = commandList->get_private_data<CommandListSkip>();
-	commandListData->skip = false;
-	commandListData->VS = 0;
-	commandListData->PS = 0;
-	commandListData->CS = 0;
+	commandListData.skip = false;
+	commandListData.VS = 0;
+	commandListData.PS = 0;
+	commandListData.CS = 0;
 }
 
 bool blockDrawCallForCommandList(command_list* commandList)
@@ -931,7 +931,7 @@ bool blockDrawCallForCommandList(command_list* commandList)
 	}
 
 	auto commandListData = commandList->get_private_data<CommandListSkip>();
-	return commandListData->skip;
+	return commandListData.skip;
 }
 
 static bool onDraw(command_list* commandList, uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance)
